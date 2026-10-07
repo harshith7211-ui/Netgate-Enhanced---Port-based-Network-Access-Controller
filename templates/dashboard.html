@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Monitor</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .header { background: #2c3e50; color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 24px; }
+        .status-badge { padding: 8px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; }
+        .status-running { background: #27ae60; }
+        .status-stopped { background: #e74c3c; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .card h2 { font-size: 16px; color: #333; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #e9ecef; }
+        .stat-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+        .stat-row:last-child { border-bottom: none; }
+        .stat-label { color: #666; }
+        .stat-value { font-weight: 600; color: #333; }
+        .stat-allowed { color: #27ae60; }
+        .stat-blocked { color: #e74c3c; }
+        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; transition: all 0.2s; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-primary:hover { background: #2980b9; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .controls { display: flex; gap: 12px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #e9ecef; }
+        th { background: #f8f9fa; font-weight: 600; color: #333; }
+        tr:hover { background: #f8f9fa; }
+        .badge { padding: 3px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+        .badge-allowed { background: #d4edda; color: #155724; }
+        .badge-blocked { background: #f8d7da; color: #721c24; }
+        .report-link { display: inline-block; margin-top: 10px; padding: 10px 20px; background: #27ae60; color: white; text-decoration: none; border-radius: 4px; }
+        .report-link:hover { background: #229954; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .dns-indicator { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .dns-resolved { background: #27ae60; }
+        .dns-failed { background: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Network Monitor</h1>
+        <span class="status-badge status-stopped" id="statusBadge">Stopped</span>
+    </div>
+    
+    <div class="container">
+        <div class="controls">
+            <button class="btn btn-primary" id="startBtn" onclick="startCapture()">
+                <span id="startBtnText">Start Capture</span>
+            </button>
+            <button class="btn btn-danger" id="stopBtn" onclick="stopCapture()" disabled>
+                <span id="stopBtnText">Stop Capture</span>
+            </button>
+            <a href="/api/report" target="_blank" class="report-link" id="reportLink" style="display: none;">View Report</a>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h2>Overview</h2>
+                <div class="stat-row">
+                    <span class="stat-label">Total Packets</span>
+                    <span class="stat-value" id="totalPackets">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Allowed</span>
+                    <span class="stat-value stat-allowed" id="allowedCount">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Blocked</span>
+                    <span class="stat-value stat-blocked" id="blockedCount">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Unique IPs</span>
+                    <span class="stat-value" id="uniqueIPs">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Capture Duration</span>
+                    <span class="stat-value" id="duration">0s</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>Protocols</h2>
+                <table id="protocolTable">
+                    <thead><tr><th>Protocol</th><th>Packets</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h2>Top Ports</h2>
+                <table id="portTable">
+                    <thead><tr><th>Port</th><th>Service</th><th>Packets</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="card">
+                <h2>Top Domains (DNS)</h2>
+                <table id="domainTable">
+                    <thead><tr><th>Domain</th><th>Queries</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>Top IP Addresses</h2>
+                <table id="ipTable">
+                    <thead><tr><th>IP</th><th>Domain</th><th>Packets</th></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let updateInterval = null;
+        let startTime = null;
+        let dnsCache = {};
+        
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status');
+                const data = await res.json();
+                updateDashboard(data);
+            } catch (err) {
+                console.error('Status fetch failed:', err);
+            }
+        }
+        
+        function updateDashboard(data) {
+            document.getElementById('totalPackets').textContent = data.total_packets.toLocaleString();
+            document.getElementById('allowedCount').textContent = data.allowed.toLocaleString();
+            document.getElementById('blockedCount').textContent = data.blocked.toLocaleString();
+            document.getElementById('uniqueIPs').textContent = Object.keys(data.top_ips).length;
+            
+            const badge = document.getElementById('statusBadge');
+            if (data.running) {
+                badge.textContent = 'Running';
+                badge.className = 'status-badge status-running';
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                if (!startTime) startTime = Date.now();
+            } else {
+                badge.textContent = 'Stopped';
+                badge.className = 'status-badge status-stopped';
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                startTime = null;
+            }
+            
+            if (startTime) {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                document.getElementById('duration').textContent = formatDuration(elapsed);
+            }
+            
+            renderTable('protocolTable', Object.entries(data.protocols), ([proto, count]) => 
+                `<tr><td>${proto}</td><td>${count.toLocaleString()}</td></tr>`
+            );
+            
+            renderTable('portTable', Object.entries(data.top_ports), ([port, count]) => 
+                `<tr><td>${port}</td><td>${getServiceName(port)}</td><td>${count.toLocaleString()}</td></tr>`
+            );
+            
+            renderTable('domainTable', Object.entries(data.top_domains), ([domain, count]) => 
+                `<tr><td>${domain}</td><td>${count.toLocaleString()}</td></tr>`
+            );
+            
+            renderTable('ipTable', Object.entries(data.top_ips), ([ip, count]) => {
+                const domain = dnsCache[ip] || ip;
+                const dnsClass = domain !== ip ? 'dns-resolved' : 'dns-failed';
+                return `<tr><td>${ip}</td><td><span class="dns-indicator ${dnsClass}"></span>${domain}</td><td>${count.toLocaleString()}</td></tr>`;
+            });
+        }
+        
+        function renderTable(tableId, data, rowFn) {
+            const tbody = document.querySelector(`#${tableId} tbody`);
+            tbody.innerHTML = data.map(rowFn).join('');
+        }
+        
+        function getServiceName(port) {
+            const services = {
+                20: 'FTP-DATA', 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP',
+                53: 'DNS', 80: 'HTTP', 110: 'POP3', 143: 'IMAP', 443: 'HTTPS',
+                445: 'SMB', 3306: 'MySQL', 3389: 'RDP', 5432: 'PostgreSQL',
+                5900: 'VNC', 8080: 'HTTP-Proxy', 8443: 'HTTPS-Alt'
+            };
+            return services[port] || 'Unknown';
+        }
+        
+        function formatDuration(seconds) {
+            if (seconds < 60) return `${seconds}s`;
+            if (seconds < 3600) return `${Math.floor(seconds/60)}m ${seconds%60}s`;
+            return `${Math.floor(seconds/3600)}h ${Math.floor((seconds%3600)/60)}m`;
+        }
+        
+        async function startCapture() {
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('startBtnText').innerHTML = '<span class="spinner"></span>Starting...';
+            try {
+                const res = await fetch('/api/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filter: 'ip' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    startPolling();
+                } else {
+                    alert('Failed to start capture');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('startBtnText').textContent = 'Start Capture';
+            }
+        }
+        
+        async function stopCapture() {
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('stopBtnText').innerHTML = '<span class="spinner"></span>Stopping...';
+            try {
+                const res = await fetch('/api/stop', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    stopPolling();
+                    document.getElementById('reportLink').style.display = 'inline-block';
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('stopBtnText').textContent = 'Stop Capture';
+            }
+        }
+        
+        function startPolling() {
+            fetchStatus();
+            updateInterval = setInterval(fetchStatus, 2000);
+        }
+        
+        function stopPolling() {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+                updateInterval = null;
+            }
+        }
+        
+        fetchStatus();
+    </script>
+</body>
+</html>
